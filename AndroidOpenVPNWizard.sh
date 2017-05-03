@@ -1,6 +1,12 @@
 #!/bin/bash
 
 
+
+GetScreenWidth(){
+  stty size 2>/dev/null | cut -d " " -f2
+}
+
+
 Status(){
   local check=$?
   local cols=$(GetScreenWidth)
@@ -155,9 +161,21 @@ SuccessExit(){
 }
 
 
+clear
+Title "==== Android OpenVPN Wizard ===="
+printf "\n"
 
-echo "==== Android OpenVPN Wizard ====
-echo "-- Installing OpenVPN - 'apt-get update'"
+printf "\n"; Separator "_"; EchoBold -n "  Installing OpenVPN - "; echo "apt-get update"
 sudo apt-get update
-echo "-- Installing OpenVPN - 'apt-get install openvpn'"
+
+printf "\n"; Separator "_"; EchoBold -n "  Installing OpenVPN - "; echo "apt-get install openvpn"
 sudo apt-get install openvpn
+
+
+
+
+
+
+
+
+

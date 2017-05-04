@@ -1,8 +1,6 @@
 #!/bin/bash
 trap 'stop' SIGINT
 
-echo "performance" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-
 GetScreenWidth(){
   stty size 2>/dev/null | cut -d " " -f2
 }
@@ -48,66 +46,23 @@ Title(){
   [ "$cols" ] || cols=80
   for x in $(seq 1 $Spacer); do
     echo -n " "
-  done && echo -e "\033[0m"
+  done && echo -n " "; echo -e "\033[0m"
 }
 
 
 
 stop() {
-	killall xhpl;
+	killall stress;
 	EchoRed "Aborted.  Exiting...";
-	killall -SIGTERM xhpl 2</dev/null;
+	killall -SIGTERM stress 2</dev/null;
 	exit 0;
 }
 
 
-if [[ $(dpkg-query -W -f='${Status}' libmpich-dev 2>/dev/null | grep -c "ok installed") -eq 0 ]]; then
-	printf "\n"
-	EchoBold "Installing libmpich-dev..."
-	#sudo apt-get install libmpich-dev
-fi
 
-if [[ ! -f xhpl ]]; then
-	printf "\n"
-	EchoBold "Downloading xhpl..."
-	wget http://web.eece.maine.edu/~vweaver/junk/pi3_hpl.tar.gz
-	tar -xvzf pi3_hpl.tar.gz
-	chmod +x xhpl
-	rm -rf pi3_hpl.tar.gz
-fi
-
-
-
-fullload() { dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null & }
-#fullload &
-
-
-CPUMINFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq`/1000))
-CPUMAXFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq`/1000))
-MEMVOLTC=`/opt/vc/bin/vcgencmd measure_volts sdram_c | cut -d '=' -f2`
-MEMVOLTI=`/opt/vc/bin/vcgencmd measure_volts sdram_i | cut -d '=' -f2`
-MEMVOLTP=`/opt/vc/bin/vcgencmd measure_volts sdram_p | cut -d '=' -f2`
-COREVOLT=`/opt/vc/bin/vcgencmd measure_volts core | cut -d '=' -f2`
-TEMPLIMIT=`/opt/vc/bin/vcgencmd get_config temp_limit | cut -d '=' -f2`
-SDRAMFREQ=`/opt/vc/bin/vcgencmd get_config sdram_freq | cut -d '=' -f2`
-MEMOVERVOLTC=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_c | cut -d '=' -f2`
-MEMOVERVOLTI=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_i | cut -d '=' -f2`
-MEMOVERVOLTP=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_p | cut -d '=' -f2`
-GPUFREQ=`/opt/vc/bin/vcgencmd get_config gpu_freq | cut -d '=' -f2`
-STOPTEMP=85
-CTRLC=`EchoBold 'Press Ctrl+C to exit...'`;
-
-
-#----------------------------------------------------------------------------------------------------------------------
-echo "" >xhpl.out
-./xhpl >xhpl.out &
-sleep 1
-XHPLPID="`ps ax | grep xhpl | grep -v grep | tail -1 | awk '{print $1;}'`";
-if [[ "$XHPLPID" = "" ]]; then EchoRed "XHPL failed to start.  Exiting..."; killall xhpl; exit 1; fi
-
-while [ "$XHPLPID" != "" ]; do
-	XHPLPID=`ps ax | grep xhpl | grep -v grep | tail -1 | awk '{print $1;}'`;
-	TIME="$(date)"
+function SystemMonitor(){
+	STRESSPID=`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`;
+	TIME="$(date +%H:%M:%S)"
 	CPUTEMPA=$(</sys/class/thermal/thermal_zone0/temp)
 	CPUTEMP=$((CPUTEMPA/1000))
 	CPUFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`/1000))
@@ -143,7 +98,7 @@ while [ "$XHPLPID" != "" ]; do
 	else
 		GPUTEMPVARI=""
 	fi
-	A=`Title 'Raspberry Pi 3 Stress Tester'`;
+	A=`Title "Raspberry Pi 3 Stress Tester - $TIME"`;
 	B="  CPU Current: ${CPUFREQ}Mhz @ $COREVOLT     Min:${CPUMINFREQ}Mhz  Mhz Max:${CPUMAXFREQ}Mhz";
 	C="  SDRAM Voltage:  C=$MEMOVERVOLTC/$MEMVOLTC  I=$MEMOVERVOLTI/$MEMVOLTI  P=$MEMOVERVOLTP/$MEMVOLTP";
 	D="  SDRAM Frequency: ${SDRAMFREQ}Mhz     GPU Frequency: ${GPUFREQ}Mhz";
@@ -153,7 +108,7 @@ while [ "$XHPLPID" != "" ]; do
 	AB="  CPU Temp: $CPUTEMPCOLORED    $GPUTEMPVARI";
 
 	SEP=`Separator '_'`;
-	TIM="$TIME";
+	sleep 1
 	clear
 
 	printf "%s\n\n" "$A"
@@ -172,15 +127,66 @@ while [ "$XHPLPID" != "" ]; do
                 exit 0
         fi
 	printf "%s\n" "$CTRLC"
+};
+
+
+
+CPUMINFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq`/1000))
+CPUMAXFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq`/1000))
+MEMVOLTC=`/opt/vc/bin/vcgencmd measure_volts sdram_c | cut -d '=' -f2`
+MEMVOLTI=`/opt/vc/bin/vcgencmd measure_volts sdram_i | cut -d '=' -f2`
+MEMVOLTP=`/opt/vc/bin/vcgencmd measure_volts sdram_p | cut -d '=' -f2`
+COREVOLT=`/opt/vc/bin/vcgencmd measure_volts core | cut -d '=' -f2`
+TEMPLIMIT=`/opt/vc/bin/vcgencmd get_config temp_limit | cut -d '=' -f2`
+SDRAMFREQ=`/opt/vc/bin/vcgencmd get_config sdram_freq | cut -d '=' -f2`
+MEMOVERVOLTC=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_c | cut -d '=' -f2`
+MEMOVERVOLTI=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_i | cut -d '=' -f2`
+MEMOVERVOLTP=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_p | cut -d '=' -f2`
+GPUFREQ=`/opt/vc/bin/vcgencmd get_config gpu_freq | cut -d '=' -f2`
+STOPTEMP=83
+CTRLC=`EchoBold 'Press Ctrl+C to exit...'`;
+
+
+#----------------------------------------------------------------------------------------------------------------------
+clear
+TIME="$(date +%H:%M:%S)"; Title "Raspberry Pi Stress Tester - $TIME"
+sleep 1
+
+if [[ $(dpkg-query -W -f='${Status}' stress 2>/dev/null | grep -c "ok installed") = "0" ]]; then
+	printf "\n"
+	EchoBold "Installing stress..."
+	Separator "_"
+	sudo apt-get install stress
+	sleep 5
+	clear; TIME="$(date +%H:%M)"; Title "Raspberry Pi Stress Tester - $TIME"
+fi
+
+
+
+if [[ ! -f cpuburn-a53 ]]; then
+	printf "\n"
+	EchoBold "Downloading cpuburn..."
+	Separator "_"
+	wget https://raw.githubusercontent.com/ssvb/cpuburn-arm/master/cpuburn-a53.S
+	gcc -o cpuburn-a53 cpuburn-a53.S
+	rm -rf cpuburn-a53.S
+	sleep 5
+	clear; TIME="$(date +%H:%M)"; Title "Raspberry Pi Stress Tester - $TIME"
+fi
+
+clear; TIME="$(date +%H:%M:%S)"; Title "Raspberry Pi Stress Tester - $TIME"
+printf "\n%s\n" "`EchoBold 'Setting scaling governor to performance'`"
+echo "performance" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+sleep 2
+EchoBold "Starting stress..."
+stress -c 4 -t 900s &
+sleep 2
+STRESSPID="`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`";
+if [[ "$STRESSPID" = "" ]]; then EchoRed "stress failed to start.  Exiting..."; killall stress; exit 1; fi
+
+while [ "$STRESSPID" != "" ]; do
+	SystemMonitor
 done
 
 printf "\n\n"
-GFLOPS=`cat xhpl.out | grep "WR02R2L2" | awk '{ print $NF }'`
-PASSFAIL=`cat xhpl.out | grep "||A||" | tail -1 | awk '{ print $NF }'`
-EchoBold "--  xhpl $PASSFAIL at $GFLOPS  --"
-if [[ `echo $GFLOPS | awk '{print int($1)}'` -lt 6 ]]; then
-	EchoRed "xhpl should produce a result greater than 6 Gigaflops"
-	echo "If the CPU was throttled consider revising your overclock"
-	echo "or your cooling mechanisms"
-fi
 exit 0

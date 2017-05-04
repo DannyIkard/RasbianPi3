@@ -54,15 +54,32 @@ Title(){
 
 
 stop() {
-	killall dd;
-	printf "%s" "Exited successfully.";
-	killall -SIGTERM dd 2</dev/null;
+	killall xhpl;
+	EchoRed "Aborted.  Exiting...";
+	killall -SIGTERM xhpl 2</dev/null;
 	exit 0;
 }
 
 
+if [[ $(dpkg-query -W -f='${Status}' libmpich-dev 2>/dev/null | grep -c "ok installed") -eq 0 ]]; then
+	printf "\n"
+	EchoBold "Installing libmpich-dev..."
+	#sudo apt-get install libmpich-dev
+fi
+
+if [[ ! -f xhpl ]]; then
+	printf "\n"
+	EchoBold "Downloading xhpl..."
+	wget http://web.eece.maine.edu/~vweaver/junk/pi3_hpl.tar.gz
+	tar -xvzf pi3_hpl.tar.gz
+	chmod +x xhpl
+	rm -rf pi3_hpl.tar.gz
+fi
+
+
+
 fullload() { dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null | dd if=/dev/zero of=/dev/null & }
-fullload &
+#fullload &
 
 
 CPUMINFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq`/1000))
@@ -77,13 +94,19 @@ MEMOVERVOLTC=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_c | cut -d '=' 
 MEMOVERVOLTI=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_i | cut -d '=' -f2`
 MEMOVERVOLTP=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_p | cut -d '=' -f2`
 GPUFREQ=`/opt/vc/bin/vcgencmd get_config gpu_freq | cut -d '=' -f2`
-STOPTEMP=$((TEMPLIMIT-3))
+STOPTEMP=85
 CTRLC=`EchoBold 'Press Ctrl+C to exit...'`;
 
 
 #----------------------------------------------------------------------------------------------------------------------
+echo "" >xhpl.out
+./xhpl >xhpl.out &
+sleep 1
+XHPLPID="`ps ax | grep xhpl | grep -v grep | tail -1 | awk '{print $1;}'`";
+if [[ "$XHPLPID" = "" ]]; then EchoRed "XHPL failed to start.  Exiting..."; killall xhpl; exit 1; fi
 
-while [ 1 ]; do
+while [ "$XHPLPID" != "" ]; do
+	XHPLPID=`ps ax | grep xhpl | grep -v grep | tail -1 | awk '{print $1;}'`;
 	TIME="$(date)"
 	CPUTEMPA=$(</sys/class/thermal/thermal_zone0/temp)
 	CPUTEMP=$((CPUTEMPA/1000))
@@ -149,9 +172,15 @@ while [ 1 ]; do
                 exit 0
         fi
 	printf "%s\n" "$CTRLC"
-
 done
 
-killall dd
-echo "Exit success"
+printf "\n\n"
+GFLOPS=`cat xhpl.out | grep "WR02R2L2" | awk '{ print $NF }'`
+PASSFAIL=`cat xhpl.out | grep "||A||" | tail -1 | awk '{ print $NF }'`
+EchoBold "--  xhpl $PASSFAIL at $GFLOPS  --"
+if [[ `echo $GFLOPS | awk '{print int($1)}'` -lt 6 ]]; then
+	EchoRed "xhpl should produce a result greater than 6 Gigaflops"
+	echo "If the CPU was throttled consider revising your overclock"
+	echo "or your cooling mechanisms"
+fi
 exit 0

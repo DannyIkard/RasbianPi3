@@ -1,5 +1,25 @@
 #!/bin/bash
-trap 'stop' SIGINT
+trap 'Stop' SIGINT
+
+SV="/dev/shm/PiClocker/vars";
+mkdir -p $SV
+
+
+WrapUp() {
+	killall -SIGTERM "`cat $SV/SubPID`" 2>/dev/null;
+	rm -rf $SV
+	exit 0;
+}
+
+
+Stop() {
+	killall stress;
+	EchoRed "Aborted.  Exiting...";
+	killall -SIGTERM stress 2</dev/null;
+	WrapUp
+}
+
+
 
 GetScreenWidth(){
   stty size 2>/dev/null | cut -d " " -f2
@@ -30,7 +50,89 @@ EchoGreen(){
   if [ "$1" = "-n" ]; then shift; echo -en "\033[38;5;22;1m$@\033[0m"; else echo -e "\033[38;5;22;1m$@\033[0m"; fi
 }
 
+function SystemMonitorSub(){
+      (
+	echo "$$" >>$SV/SubPID;
+      while true; do
+	LASTLTIMED="$THISLTIMED";
+	THISLTIMED=$(date +%s);
+	LITIMED=$((THISLTIMED-LASTLTIMED));
+	TOTALTIMED=$((THISLTIMED-LAUNCHTIMED));
+	TOTALTIME=$(date +%H:%M:%S --date @$TOTALTIMED)
+	STRESSPID=`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`;
+	CPUTEMPA=$(</sys/class/thermal/thermal_zone0/temp)
+	CPUTEMP=$((CPUTEMPA/1000))
 
+	GPUTEMP=`/opt/vc/bin/vcgencmd measure_temp | cut -d '=' -f2 | cut -d "'" -f1 | awk '{print int($1)}'`
+	ARMCLOCK=$((`/opt/vc/bin/vcgencmd measure_clock arm | cut -d '=' -f2`/1000000))
+	if [[ $ARMCLOCK -lt $((CPUFREQ-2)) ]]; then
+		THROTTLE=`EchoRed 'Throttled'`;
+		THROTTLEDTIMED=$((THROTTLEDTIMED+LITIMED));
+	else
+		THROTTLE="         ";
+	fi
+	THROTTLEDPCNT=`awk -v t1="$THROTTLEDTIMED" -v t2="$TOTALTIMED" 'BEGIN{printf "%.0f", t1/t2 * 100}'`;
+	if [[ $THROTTLEDPCNT -gt 5 ]]; then
+		THROTTLEDPCNTTEXT=`EchoRed "Throttled %: ${THROTTLEDPCNT}%"`;
+	else
+		THROTTLEDPCNTTEXT=`EchoGreen "Throttled %: ${THROTTLEDPCNT}%"`;
+	fi
+	if [[ $ARMCLOCK -lt $((CPUFREQ-100)) ]]; then
+		ARMCLOCKCOLORED=`EchoRed ${ARMCLOCK}Mhz`;
+	elif [[ $ARMCLOCK -lt $((CPUFREQ-6)) ]]; then
+		ARMCLOCKCOLORED="${ARMCLOCK}Mhz";
+	else
+		ARMCLOCKCOLORED=`EchoGreen ${ARMCLOCK}Mhz`;
+	fi
+#	if [[ $ARMCLOCK -eq 600 ]]; then
+		
+
+
+#	if [[ $ARMCLOCK -ge $((CPUFREQ-6)) ]]; then
+#		ARMCLOCKCOLORED=`EchoGreen ${ARMCLOCK}Mhz`;
+#	fi
+	if [[ $CPUTEMP -lt $((TEMPLIMIT-10)) ]]; then
+		CPUTEMPCOLORED=`EchoGreen $CPUTEMP"'C"`;
+	else
+		CPUTEMPCOLORED=`EchoRed $CPUTEMP"'C"`;
+	fi
+	if [[ $GPUTEMP -lt $((TEMPLIMIT-10)) ]]; then
+		GPUTEMPCOLORED=`EchoGreen $GPUTEMP"'C"`;
+	else
+		GPUTEMPCOLORED=`EchoRed $GPUTEMP"'C"`;
+	fi
+	if [[ $GPUTEMP -lt $((CPUTEMP-2)) || $GPUTEMP -gt $((CPUTEMP+2)) ]]; then
+		GPUTEMPVARI="GPU Temp: $GPUTEMPCOLORED"
+	else
+		GPUTEMPVARI=""
+	fi
+	TITLE=`Title "Raspberry Pi 3 Stress Tester - $TOTALTIME"`;
+	SEP=`Separator '_'`;
+
+	PWRLOWN="`gpio read 135`";
+	if [ $PWRLOWN -ne 0 ]; then
+		echo "$PWRLOWN    $(date +%H:%M:%S)" >>PWRLOWN.log;
+		PWRLOWNTXT="`EchoRed 'Power supply undervoltage detected'`";
+		echo "$PWRLOWNTXT" >$SV/PWRLOWNTXT;
+		echo "*" >$SV/PWRLOWNIND;
+	else
+		echo " " >$SV/PWRLOWNIND;
+	fi
+
+	echo "$TOTALTIME" >$SV/TOTALTIME;
+	echo "$ARMCLOCKCOLORED" >$SV/ARMCLOCKCOLORED;
+	echo "$THROTTLE" >$SV/THROTTLE;
+	echo "$THROTTLEDPCNTTEXT" >$SV/THROTTLEDPCNTTEXT;
+	echo "$CPUTEMPCOLORED" >$SV/CPUTEMPCOLORED;
+	echo "$GPUTEMPVARI" >$SV/GPUTEMPVARI;
+	echo "$SEP" >$SV/SEP;
+	echo "$TITLE" >$SV/TITLE;
+	echo "$CPUTEMP" >$SV/CPUTEMP;
+
+	sleep .2
+      done;
+	) &
+}
 
 Title(){
   echo -en "\033[7;1m"
@@ -51,86 +153,12 @@ Title(){
 
 
 
-stop() {
-	killall stress;
-	EchoRed "Aborted.  Exiting...";
-	killall -SIGTERM stress 2</dev/null;
-	exit 0;
-}
-
-
-
-function SystemMonitor(){
-	STRESSPID=`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`;
-	TIME="$(date +%H:%M:%S)"
-	CPUTEMPA=$(</sys/class/thermal/thermal_zone0/temp)
-	CPUTEMP=$((CPUTEMPA/1000))
-	CPUFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`/1000))
-	GPUTEMP=`/opt/vc/bin/vcgencmd measure_temp | cut -d '=' -f2 | cut -d "'" -f1 | awk '{print int($1)}'`
-	ARMCLOCK=$((`/opt/vc/bin/vcgencmd measure_clock arm | cut -d '=' -f2`/1000000))
-	if [[ $ARMCLOCK -lt $((CPUFREQ-2)) ]]; then
-		Throttle=`EchoRed 'Throttled'`;
-	else
-		Throttle="         ";
-	fi
-	if [[ $ARMCLOCK -lt $((CPUFREQ-100)) ]]; then
-		ARMCLOCKCOLORED=`EchoRed ${ARMCLOCK}Mhz`;
-	elif [[ $ARMCLOCK -lt $((CPUFREQ-6)) ]]; then
-		ARMCLOCKCOLORED="${ARMCLOCK}Mhz";
-	else
-		ARMCLOCKCOLORED=`EchoGreen ${ARMCLOCK}Mhz`;
-	fi
-#	if [[ $ARMCLOCK -ge $((CPUFREQ-6)) ]]; then
-#		ARMCLOCKCOLORED=`EchoGreen ${ARMCLOCK}Mhz`;
-#	fi
-	if [[ $CPUTEMP -lt $((TEMPLIMIT-10)) ]]; then
-		CPUTEMPCOLORED=`EchoGreen $CPUTEMP"'C"`;
-	else
-		CPUTEMPCOLORED=`EchoRed $CPUTEMP"'C"`;
-	fi
-	if [[ $GPUTEMP -lt $((TEMPLIMIT-10)) ]]; then
-		GPUTEMPCOLORED=`EchoGreen $GPUTEMP"'C"`;
-	else
-		GPUTEMPCOLORED=`EchoRed $GPUTEMP"'C"`;
-	fi
-	if [[ $GPUTEMP -lt $((CPUTEMP-1)) || $GPUTEMP -gt $((CPUTEMP+1)) ]]; then
-		GPUTEMPVARI="GPU Temp: $GPUTEMPCOLORED"
-	else
-		GPUTEMPVARI=""
-	fi
-	A=`Title "Raspberry Pi 3 Stress Tester - $TIME"`;
-	B="  CPU Current: ${CPUFREQ}Mhz @ $COREVOLT     Min:${CPUMINFREQ}Mhz  Mhz Max:${CPUMAXFREQ}Mhz";
-	C="  SDRAM Voltage:  C=$MEMOVERVOLTC/$MEMVOLTC  I=$MEMOVERVOLTI/$MEMVOLTI  P=$MEMOVERVOLTP/$MEMVOLTP";
-	D="  SDRAM Frequency: ${SDRAMFREQ}Mhz     GPU Frequency: ${GPUFREQ}Mhz";
-	E="  Max Temp: $TEMPLIMIT'C";
-
-	AA="  ARM Clock: ${ARMCLOCKCOLORED} $Throttle";
-	AB="  CPU Temp: $CPUTEMPCOLORED    $GPUTEMPVARI";
-
-	SEP=`Separator '_'`;
-	sleep 1
-	clear
-
-	printf "%s\n\n" "$A"
-	printf "%s\n" "$B"
-	printf "%s\n" "$C"
-	printf "%s\n" "$D"
-	printf "%s\n" "$E"
-        printf "%s\n" "$SEP"
-        printf "%s\n" "$AA"
-        printf "%s\n" "$AB"
-        printf "%s\n" "$SEP"
-	printf "%s\n" "$TIM"
-        if [[ $CPUTEMP -ge $STOPTEMP || $GPUTEMP -ge $STOPTEMP ]]; then
-                echo "****  $STOPTEMP DEGREES REACHED - STOPPING TEST  *****"
-                killall dd
-                exit 0
-        fi
-	printf "%s\n" "$CTRLC"
-};
-
-
-
+LAUNCHTIMED=$(date +%s);
+LASTLTIMED=$(date +%s);
+THISLTIMED=$(date +%s);
+TOTALTIMED=0;
+TOTALTIME="00:00:00";
+THROTTLEDTIMED=0;
 CPUMINFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq`/1000))
 CPUMAXFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq`/1000))
 MEMVOLTC=`/opt/vc/bin/vcgencmd measure_volts sdram_c | cut -d '=' -f2`
@@ -145,12 +173,58 @@ MEMOVERVOLTP=`/opt/vc/bin/vcgencmd get_config over_voltage_sdram_p | cut -d '=' 
 GPUFREQ=`/opt/vc/bin/vcgencmd get_config gpu_freq | cut -d '=' -f2`
 STOPTEMP=83
 CTRLC=`EchoBold 'Press Ctrl+C to exit...'`;
+CPUFREQ=$((`cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`/1000))
+PWRLOWNTXT="";
+
+function SystemMonitor(){
+	TOTALTIME="`cat $SV/TOTALTIME`";
+	ARMCLOCKCOLORED="`cat $SV/ARMCLOCKCOLORED`";
+	THROTTLE="`cat $SV/THROTTLE`";
+	THROTTLEDPCNTTEXT="`cat $SV/THROTTLEDPCNTTEXT`";
+	CPUTEMPCOLORED="`cat $SV/CPUTEMPCOLORED`";
+	GPUTEMPVARI="`cat $SV/GPUTEMPVARI`";
+	SEP="`cat $SV/SEP`";
+	TITLE="`cat $SV/TITLE`";
+	CPUTEMP="`cat $SV/CPUTEMP`";
+	PWRLOWNTXT="`cat $SV/PWRLOWNTXT 2>/dev/null`";
+	PWRLOWNIND="`cat $SV/PWRLOWNIND 2>/dev/null`";
+
+	A="$TITLE";
+	B="  CPU Current: ${CPUFREQ}Mhz @ $COREVOLT     Min:${CPUMINFREQ}Mhz  Mhz Max:${CPUMAXFREQ}Mhz";
+	C="  SDRAM Voltage:  C=$MEMOVERVOLTC/$MEMVOLTC  I=$MEMOVERVOLTI/$MEMVOLTI  P=$MEMOVERVOLTP/$MEMVOLTP";
+	D="  SDRAM Frequency: ${SDRAMFREQ}Mhz     GPU Frequency: ${GPUFREQ}Mhz";
+	E="  Max Temp: $TEMPLIMIT'C";
+	AA="  ARM Clock: ${ARMCLOCKCOLORED} $THROTTLE     $THROTTLEDPCNTTEXT";
+	AB="  CPU Temp: $CPUTEMPCOLORED    $GPUTEMPVARI";
+	AC="  ${PWRLOWIND}${PWRLOWTXT}${PWRLOWIND}";
+	sleep .8
+	clear
+
+	printf "%s\n\n" "$A"
+	printf "%s\n" "$B"
+	printf "%s\n" "$C"
+	printf "%s\n" "$D"
+	printf "%s\n" "$E"
+        printf "%s\n" "$SEP"
+        printf "%s\n" "$AA"
+        printf "%s\n" "$AB"
+        printf "%s\n" "$AC"
+        printf "%s\n" "$SEP"
+#        if [[ $CPUTEMP -ge $STOPTEMP || $GPUTEMP -ge $STOPTEMP ]]; then
+#                echo "****  $STOPTEMP DEGREES REACHED - STOPPING TEST  *****"
+#                killall dd
+#                exit 0
+#        fi
+	printf "%s\n" "$CTRLC"
+};
+
+
+
 
 
 #----------------------------------------------------------------------------------------------------------------------
 clear
 TIME="$(date +%H:%M:%S)"; Title "Raspberry Pi Stress Tester - $TIME"
-sleep 1
 
 if [[ $(dpkg-query -W -f='${Status}' stress 2>/dev/null | grep -c "ok installed") = "0" ]]; then
 	printf "\n"
@@ -174,19 +248,13 @@ if [[ ! -f cpuburn-a53 ]]; then
 	clear; TIME="$(date +%H:%M)"; Title "Raspberry Pi Stress Tester - $TIME"
 fi
 
-clear; TIME="$(date +%H:%M:%S)"; Title "Raspberry Pi Stress Tester - $TIME"
-printf "\n%s\n" "`EchoBold 'Setting scaling governor to performance'`"
 echo "performance" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-sleep 2
-EchoBold "Starting stress..."
 stress -c 4 -t 900s &
-sleep 2
 STRESSPID="`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`";
-if [[ "$STRESSPID" = "" ]]; then EchoRed "stress failed to start.  Exiting..."; killall stress; exit 1; fi
-
+if [[ "$STRESSPID" = "" ]]; then EchoRed "stress failed to start.  Exiting...  "; Stop; fi
+SystemMonitorSub
+sleep 1
 while [ "$STRESSPID" != "" ]; do
 	SystemMonitor
 done
-
-printf "\n\n"
-exit 0
+WrapUp

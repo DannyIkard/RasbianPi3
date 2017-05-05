@@ -62,7 +62,6 @@ function SystemMonitorSub(){
 	STRESSPID=`ps ax | grep stress | grep -v grep | head -1 | awk '{print $1;}'`;
 	CPUTEMPA=$(</sys/class/thermal/thermal_zone0/temp)
 	CPUTEMP=$((CPUTEMPA/1000))
-
 	GPUTEMP=`/opt/vc/bin/vcgencmd measure_temp | cut -d '=' -f2 | cut -d "'" -f1 | awk '{print int($1)}'`
 	ARMCLOCK=$((`/opt/vc/bin/vcgencmd measure_clock arm | cut -d '=' -f2`/1000000))
 	if [[ $ARMCLOCK -lt $((CPUFREQ-2)) ]]; then
@@ -73,9 +72,9 @@ function SystemMonitorSub(){
 	fi
 	THROTTLEDPCNT=`awk -v t1="$THROTTLEDTIMED" -v t2="$TOTALTIMED" 'BEGIN{printf "%.0f", t1/t2 * 100}'`;
 	if [[ $THROTTLEDPCNT -gt 5 ]]; then
-		THROTTLEDPCNTTEXT=`EchoRed "Throttled %: ${THROTTLEDPCNT}%"`;
+		THROTTLEDPCNTCOLORED=`EchoRed "${THROTTLEDPCNT}%"`;
 	else
-		THROTTLEDPCNTTEXT=`EchoGreen "Throttled %: ${THROTTLEDPCNT}%"`;
+		THROTTLEDPCNTCOLORED=`EchoGreen "${THROTTLEDPCNT}%"`;
 	fi
 	if [[ $ARMCLOCK -lt $((CPUFREQ-100)) ]]; then
 		ARMCLOCKCOLORED=`EchoRed ${ARMCLOCK}Mhz`;
@@ -101,11 +100,11 @@ function SystemMonitorSub(){
 	else
 		GPUTEMPCOLORED=`EchoRed $GPUTEMP"'C"`;
 	fi
-	if [[ $GPUTEMP -lt $((CPUTEMP-2)) || $GPUTEMP -gt $((CPUTEMP+2)) ]]; then
-		GPUTEMPVARI="GPU Temp: $GPUTEMPCOLORED"
-	else
-		GPUTEMPVARI=""
-	fi
+#	if [[ $GPUTEMP -lt $((CPUTEMP-2)) || $GPUTEMP -gt $((CPUTEMP+2)) ]]; then
+#		GPUTEMPVARI="GPU Temp: $GPUTEMPCOLORED"
+#	else
+#		GPUTEMPVARI=""
+#	fi
 	TITLE=`Title "Raspberry Pi 3 Stress Tester - $TOTALTIME"`;
 	SEP=`Separator '_'`;
 
@@ -122,9 +121,9 @@ function SystemMonitorSub(){
 	echo "$TOTALTIME" >$SV/TOTALTIME;
 	echo "$ARMCLOCKCOLORED" >$SV/ARMCLOCKCOLORED;
 	echo "$THROTTLE" >$SV/THROTTLE;
-	echo "$THROTTLEDPCNTTEXT" >$SV/THROTTLEDPCNTTEXT;
+	echo "$THROTTLEDPCNTCOLORED" >$SV/THROTTLEDPCNTCOLORED;
 	echo "$CPUTEMPCOLORED" >$SV/CPUTEMPCOLORED;
-	echo "$GPUTEMPVARI" >$SV/GPUTEMPVARI;
+	echo "$GPUTEMPCOLORED" >$SV/GPUTEMPCOLORED;
 	echo "$SEP" >$SV/SEP;
 	echo "$TITLE" >$SV/TITLE;
 	echo "$CPUTEMP" >$SV/CPUTEMP;
@@ -180,9 +179,9 @@ function SystemMonitor(){
 	TOTALTIME="`cat $SV/TOTALTIME`";
 	ARMCLOCKCOLORED="`cat $SV/ARMCLOCKCOLORED`";
 	THROTTLE="`cat $SV/THROTTLE`";
-	THROTTLEDPCNTTEXT="`cat $SV/THROTTLEDPCNTTEXT`";
+	THROTTLEDPCNTCOLORED="`cat $SV/THROTTLEDPCNTCOLORED`";
 	CPUTEMPCOLORED="`cat $SV/CPUTEMPCOLORED`";
-	GPUTEMPVARI="`cat $SV/GPUTEMPVARI`";
+	GPUTEMPCOLORED="`cat $SV/GPUTEMPCOLORED`";
 	SEP="`cat $SV/SEP`";
 	TITLE="`cat $SV/TITLE`";
 	CPUTEMP="`cat $SV/CPUTEMP`";
@@ -194,9 +193,11 @@ function SystemMonitor(){
 	C="  SDRAM Voltage:  C=$MEMOVERVOLTC/$MEMVOLTC  I=$MEMOVERVOLTI/$MEMVOLTI  P=$MEMOVERVOLTP/$MEMVOLTP";
 	D="  SDRAM Frequency: ${SDRAMFREQ}Mhz     GPU Frequency: ${GPUFREQ}Mhz";
 	E="  Max Temp: $TEMPLIMIT'C";
-	AA="  ARM Clock: ${ARMCLOCKCOLORED} $THROTTLE     $THROTTLEDPCNTTEXT";
-	AB="  CPU Temp: $CPUTEMPCOLORED    $GPUTEMPVARI";
-	AC="  ${PWRLOWIND}${PWRLOWTXT}${PWRLOWIND}";
+	AA="  ARM Clock: ${ARMCLOCKCOLORED} $THROTTLE";
+	AB="  CPU Temp: $CPUTEMPCOLORED"
+	AC="  GPU Temp: $GPUTEMPCOLORED";
+	AD="  Percentage ARM spent throttled: $THROTTLEDPCNTCOLORED";
+	AE="  ${PWRLOWIND}${PWRLOWTXT}${PWRLOWIND}";
 	sleep .8
 	clear
 
@@ -209,6 +210,8 @@ function SystemMonitor(){
         printf "%s\n" "$AA"
         printf "%s\n" "$AB"
         printf "%s\n" "$AC"
+        printf "%s\n" "$AD"
+        printf "%s\n" "$AE"
         printf "%s\n" "$SEP"
 #        if [[ $CPUTEMP -ge $STOPTEMP || $GPUTEMP -ge $STOPTEMP ]]; then
 #                echo "****  $STOPTEMP DEGREES REACHED - STOPPING TEST  *****"

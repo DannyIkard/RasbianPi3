@@ -2,9 +2,49 @@
 . ../SharedLib
 ScriptDir="$( cd "$( dirname "$BASH_SOURCE[0]}" )" && pwd )"
 
+EnableKeysSharing(){
+	EchoBold -n "Stopping existing sshd, if running"
+	sudo systemctl stop ssh &>/dev/null
+	Status
+
+	EchoBold "Creating home for ovpnkeys user"
+	sudo mkdir -p /dev/shm/ovpnkeys &>/dev/null
+	sudo chown root:ovpnkeys /dev/shm/ovpnkeys &>/dev/null
+	sudo chmod /dev/shm/ovpnkeys 0750 &>/dev/null
+	Status
+
+	EchoBold "Moving keys to ovpnkeys home directory"
+	sudo cp /etc/openvpn/keys/client*.ovpn /dev/shm/ovpnkeys &>/dev/null
+	Status
+
+	EchoBold -n "Restarting sshd"
+	sudo systemctl stop ssh &>/dev/null
+	Status
+	
+	EchoGreen "SFTP for ovpnkeys enabled"
+}
+
+DisableKeysSharing(){
+	EchoBold -n "Stopping sshd"
+	sudo systemctl stop ssh &>/dev/null
+	Status
+
+	EchoBold -n "Removing ovpnkeys home directory"
+	sudo rm -rf /dev/shm/ovpnkeys &>/dev/null
+	Status
+	
+	EchoRed "SFTP for ovpnkeys disabled"
+}
+
+
 Install(){
-	mkdir -p /dev/shm/OpenVPNInstall 2>/dev/null
 	Title "Install OpenVPN"
+	mkdir -p /dev/shm/OpenVPNInstall 2>/dev/null
+	if [ -d /etc/openvpn/easy-rsa/ ]; then
+		EchoRed -n "Removing existing easy-rsa directory in /etc/openvpn"
+		sudo rm -rf /etc/openvpn/easy-rsa
+		Status
+	fi
 	printf "\n"
 	if [[ ! -f /etc/apt/preferences.d/stretch.pref || ! -f /etc/apt/sources.list.d/stretch.list ]]; then
 		EchoBold -n "Adding Stretch Repositories..."
@@ -70,7 +110,7 @@ EOF"
 	sleep .5
 
 	EchoBold "We will now open nano to edit the var file."
-	EchoBold "Please edit the below vars to your preference:"
+	EchoBold "--Please edit the below vars to your preference:"
 	read -e -p "KEY_COUNTRY=" -i "US" COUNTRY
 	read -e -p "KEY_PROVINCE=" -i "CA" PROVINCE
 	read -e -p "KEY_CITY=" -i "SanFrancisco" CITY
@@ -78,7 +118,7 @@ EOF"
 	read -e -p "KEY_EMAIL=" -i "me@myhost.mydomain" EMAIL
 	read -e -p "KEY_OU=" -i "MyOrganizationalUnit" OU
 
-	EchoBold "Enter the number of clients that will use this VPN"
+	EchoBold "--Enter the number of clients that will use this VPN"
 	CLIENTSOK=""
 	while [[ $CLIENTSOK != "OK" ]]; do
 		read -e -p "Client Keys=" -i "4" CLIENTS
@@ -97,6 +137,17 @@ EOF"
 		fi
 	done
 
+	EchoBold -n "Adding ovpnkeys user.  This is used to retrieve passwords via SFTP."
+	sudo groupadd ovpnkeys &>/dev/null
+	sudo useradd -g ovpnkeys -d /dev/shm/ovpnkeys -s /sbin/nologin ovpnkeys &>/dev/null
+	Status
+
+	EchoBold "--Please enter the password for the ovpnkeys user"
+	EchoBold -n "Password:"
+	sudo passwd ovpnkeys
+	printf "\n"
+
+	EchoBold -n "Creating vars file"
 	# Super-cumbersome copy and replace on vars file.  I'm really questioning why I'm doing this...
 	TF="/dev/shm/OpenVPNInstall/vars"
 	TTF="/dev/shm/OpenVPNInstall/vars.new"
@@ -109,6 +160,7 @@ EOF"
 	cat $TF | sed -e "s/export KEY_EMAIL=\"me@myhost.mydomain\"/export KEY_EMAIL=\"$EMAIL\"/" > $TTF; mv -f $TTF $TF
 	cat $TF | sed -e "s/export KEY_OU=\"MyOrganizationalUnit\"/export KEY_OU=\"$OU\"/" > $TTF; mv -f $TTF $TF
 	mv -f $TF $RF
+	Status
 
 	EchoBold -n "Preparing easy-rsa directory"
 	mkdir /etc/openvpn/easy-rsa/keys 2>/dev/null
@@ -156,15 +208,19 @@ EOF"
 		echo "</tls-auth>" >> $CO
 		Status
 	done
-
+	
 	./build-dh
 
 	rm -rf /dev/shm/OpenVPNInstall 2>/dev/null
 }
 
 
-if [[ "$1" = "install" ]]; then
+if [[ "$1" == "install" ]]; then
 	Install
+elif [[ "$1" == "startssh" ]]; then
+	EnableKeysSharing
+elif [[ "$1" == "stopssh" ]]; then
+	DisableKeysSharing
 else
 	Title "OpenVPN Wizard for RaspberryPi"
 	printf "\n"
@@ -173,5 +229,3 @@ else
 	EchoBold "  addkey: Adds a key from the existing CA made with the install command"
 fi
 exit 0
-
-

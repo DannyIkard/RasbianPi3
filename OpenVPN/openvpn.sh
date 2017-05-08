@@ -204,7 +204,7 @@ EOF"
 		CO="/etc/openvpn/easy-rsa/keys/client$i.ovpn"
 		cat $ScriptDir/client.conf > $CO
 		echo "<ca>" >> $CO
-		cat /etc/openvpn/easy-rsa/keys/ca.key >> $CO
+		cat /etc/openvpn/easy-rsa/keys/ca.crt >> $CO
 		echo "</ca>" >> $CO
 		echo "<cert>" >> $CO
 		cat /etc/openvpn/easy-rsa/keys/client$i.crt >> $CO
@@ -222,8 +222,12 @@ EOF"
 		adduser client$i
 		usermod client$i -g ovpnkeys
 		usermod client$i -s /bin/false
-		usermod client$i -d /home/client$i
-		cp $CO /home/client$i
+		mkdir -p /home/client$i/ovpnkeys
+		chown root:root /home/client$i
+		chmod 750 /home/client$i
+		chown client$i:client$i /home/client$i/ovpnkeys
+		usermod client$i -d /home/client$i/ovpnkeys
+		cp $CO /home/client$i/ovpnkeys
 	done
 	
 	Separator

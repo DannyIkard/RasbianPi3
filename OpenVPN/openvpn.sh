@@ -2,23 +2,28 @@
 . ../SharedLib
 ScriptDir="$( cd "$( dirname "$BASH_SOURCE[0]}" )" && pwd )"
 
+if [[ $EUID -ne 0 ]]; then
+	EchoRed "This script must be run as root"
+	exit 1
+fi
+
 EnableKeysSharing(){
 	EchoBold -n "Stopping existing sshd, if running"
-	sudo systemctl stop ssh &>/dev/null
+	systemctl stop ssh
 	Status
 
 	EchoBold "Creating home for ovpnkeys user"
-	sudo mkdir -p /dev/shm/ovpnkeys &>/dev/null
-	sudo chown root:ovpnkeys /dev/shm/ovpnkeys &>/dev/null
-	sudo chmod /dev/shm/ovpnkeys 0750 &>/dev/null
+	mkdir -p /dev/shm/ovpnkeys
+	chown root:ovpnkeys /dev/shm/ovpnkeys 
+	chmod 0750 /dev/shm/ovpnkeys
 	Status
 
 	EchoBold "Moving keys to ovpnkeys home directory"
-	sudo cp /etc/openvpn/keys/client*.ovpn /dev/shm/ovpnkeys &>/dev/null
+	cp /etc/openvpn/easy-rsa/keys/client*.ovpn /dev/shm/ovpnkeys 
 	Status
 
 	EchoBold -n "Restarting sshd"
-	sudo systemctl stop ssh &>/dev/null
+	systemctl stop ssh
 	Status
 	
 	EchoGreen "SFTP for ovpnkeys enabled"
@@ -26,11 +31,11 @@ EnableKeysSharing(){
 
 DisableKeysSharing(){
 	EchoBold -n "Stopping sshd"
-	sudo systemctl stop ssh &>/dev/null
+	systemctl stop ssh 
 	Status
 
 	EchoBold -n "Removing ovpnkeys home directory"
-	sudo rm -rf /dev/shm/ovpnkeys &>/dev/null
+	rm -rf /dev/shm/ovpnkeys
 	Status
 	
 	EchoRed "SFTP for ovpnkeys disabled"
@@ -45,7 +50,6 @@ Install(){
 		sudo rm -rf /etc/openvpn/easy-rsa
 		Status
 	fi
-	printf "\n"
 	if [[ ! -f /etc/apt/preferences.d/stretch.pref || ! -f /etc/apt/sources.list.d/stretch.list ]]; then
 		EchoBold -n "Adding Stretch Repositories..."
 sudo bash -c "cat << EOF > /etc/apt/preferences.d/jessie.pref
@@ -69,46 +73,45 @@ deb http://mirrordirector.raspbian.org/raspbian/ stretch main contrib non-free r
 EOF"
 		Status;
 	fi;
-	sleep .5
+
 
 	if [[ $(dpkg-query -W -f='${Status}' openvpn 2>/dev/null | grep -c "ok installed") = "0" ]]; then
 		EchoBold "apt-get update"
-		sudo apt-get update
+		apt-get update
 		EchoBold "sudo apt-get install openvpn"
-		sudo apt-get -y install openvpn -t stretch
+		apt-get -y install openvpn -t stretch
 	fi
 	if [[ $(dpkg-query -W -f='${Status}' ufw 2>/dev/null | grep -c "ok installed") = "0" ]]; then
 		EchoBold "Installing ufw"
-		sudo apt-get install ufw
+		apt-get install ufw
 	fi
 
-	EchoBold "Copying server.conf to /etc/openvpn/server.conf"
+	EchoBold -n "Copying server.conf to /etc/openvpn/server.conf"
 	cp -f ./server.conf /etc/openvpn/server.conf
-	sleep .5
+	Status
  
-	EchoBold "Editing sysctl.conf to allow ipv4 forwarding"
+	EchoBold -n "Editing sysctl.conf to allow ipv4 forwarding"
 	cp -f /etc/sysctl.conf /etc/sysctl.conf.bk
 	cat /etc/sysctl.conf | sed -e "s/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/" > /etc/sysctl.conf
-	sleep .5
+	Status
 
 	# TODO: DISABLE IPV6
 
 	EchoBold "Setting up UFW"
 	ufw allow 443/tcp
-	ufw allow 5900/tcp
-	if [ ! -f /etc/default/ufw.bk ]; then cp -f /etc/default/ufw /etc/default/ufw.bk; fi
+	ufw allow 22/tcp
+	if [ ! -f /etc/default/ufw.bk ]; then sudo cp -f /etc/default/ufw /etc/default/ufw.bk; fi
 	cat /etc/default/ufw | sed -e "s/DEFAULT_FORWARD_POLICY=\"DROP\"/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/" > /etc/default/ufw.new
 	mv -f /etc/default/ufw.new /etc/default/ufw
 	cp -f before.rules /etc/ufw/before.rules
 	ufw enable
-	sleep .5
 
 	EchoBold "EasyRSA setup"
 	rm -rf /etc/openvpn/easy-rsa 2>/dev/null
-	sudo cp -r /usr/share/easy-rsa/ /etc/openvpn
-	sudo mkdir /etc/openvpn/easy-rsa/keys
-	sleep .5
+	cp -r /usr/share/easy-rsa/ /etc/openvpn
+	mkdir /etc/openvpn/easy-rsa/keys
 
+	Separator
 	EchoBold "We will now open nano to edit the var file."
 	EchoBold "--Please edit the below vars to your preference:"
 	read -e -p "KEY_COUNTRY=" -i "US" COUNTRY
@@ -118,6 +121,7 @@ EOF"
 	read -e -p "KEY_EMAIL=" -i "me@myhost.mydomain" EMAIL
 	read -e -p "KEY_OU=" -i "MyOrganizationalUnit" OU
 
+	Separator
 	EchoBold "--Enter the number of clients that will use this VPN"
 	CLIENTSOK=""
 	while [[ $CLIENTSOK != "OK" ]]; do
@@ -137,15 +141,20 @@ EOF"
 		fi
 	done
 
-	EchoBold -n "Adding ovpnkeys user.  This is used to retrieve passwords via SFTP."
-	sudo groupadd ovpnkeys &>/dev/null
-	sudo useradd -g ovpnkeys -d /dev/shm/ovpnkeys -s /sbin/nologin ovpnkeys &>/dev/null
+	EchoBold -n "Adding ovpnkeys group"
+	groupadd ovpnkeys &>/dev/null
 	Status
 
-	EchoBold "--Please enter the password for the ovpnkeys user"
-	EchoBold -n "Password:"
-	sudo passwd ovpnkeys
-	printf "\n"
+	if ! cat /etc/ssh/sshd_config | grep "Match Group ovpnkeys"; then
+		EchoBold -n "Adding ovpnkeys group restriction to sshd_config"
+		echo "" >>/etc/ssh/sshd_config
+		echo "Match Group ovpnkeys" >>/etc/ssh/sshd_config
+		echo "	ChrootDirectory %h" >>/etc/ssh/sshd_config
+		echo "	X11Forwarding no" >>/etc/ssh/sshd_config
+		echo "	AllowTCPForwarding no" >>/etc/ssh/sshd_config
+		echo "	ForceCommand internal-sftp" >>/etc/ssh/sshd_config
+		Status
+	fi
 
 	EchoBold -n "Creating vars file"
 	# Super-cumbersome copy and replace on vars file.  I'm really questioning why I'm doing this...
@@ -207,8 +216,16 @@ EOF"
 		cat /etc/openvpn/easy-rsa/ta.key >> $CO
 		echo "</tls-auth>" >> $CO
 		Status
+		Separator
+		EchoBold "--Create user for SFTP key retrieval"
+		adduser client$i
+		usermod client$i -g ovpnkeys
+		usermod client$i -s /bin/false
+		usermod client$i -d /home/client$i
+		cp $CO /home/client$i
 	done
 	
+	Separator
 	./build-dh
 
 	rm -rf /dev/shm/OpenVPNInstall 2>/dev/null
@@ -223,9 +240,11 @@ elif [[ "$1" == "stopssh" ]]; then
 	DisableKeysSharing
 else
 	Title "OpenVPN Wizard for RaspberryPi"
-	printf "\n"
+	Separator
 	EchoBold "Commands:"
-	EchoBold "  install: Installs OpenVPN, UFW and configures both for use with Android devices"
-	EchoBold "  addkey: Adds a key from the existing CA made with the install command"
+	EchoBold "  install: "; echo "Installs OpenVPN, UFW and configures both for use with Android devices"
+	EchoBold "  startssh: "; echo "Starts SSH so keys can be retrieved via SFTP"
+	EchoBold "  stopssh: "; echo "Stops SSH"o
+	Separator
 fi
 exit 0

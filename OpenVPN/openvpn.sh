@@ -100,6 +100,7 @@ EOF"
 	EchoBold "Setting up UFW"
 	ufw allow 443/tcp
 	ufw allow 22/tcp
+	ufw allow 5900/tcp
 	if [ ! -f /etc/default/ufw.bk ]; then sudo cp -f /etc/default/ufw /etc/default/ufw.bk; fi
 	cat /etc/default/ufw | sed -e "s/DEFAULT_FORWARD_POLICY=\"DROP\"/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/" > /etc/default/ufw.new
 	mv -f /etc/default/ufw.new /etc/default/ufw
@@ -151,7 +152,7 @@ EOF"
 		echo "Match Group ovpnkeys" >>/etc/ssh/sshd_config
 		echo "	ChrootDirectory %h" >>/etc/ssh/sshd_config
 		echo "	X11Forwarding no" >>/etc/ssh/sshd_config
-		echo "	AllowTCPForwarding no" >>/etc/ssh/sshd_config
+		echo "	AllowTcpForwarding no" >>/etc/ssh/sshd_config
 		echo "	ForceCommand internal-sftp" >>/etc/ssh/sshd_config
 		Status
 	fi

@@ -1,5 +1,8 @@
 #!/bin/bash
 . ../SharedLib
+
+# TODO: DISABLE IPV6, choose port/tcp,udp, harden...
+
 ScriptDir="$( cd "$( dirname "$BASH_SOURCE[0]}" )" && pwd )"
 
 if [[ $EUID -ne 0 ]]; then
@@ -8,37 +11,37 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 EnableKeysSharing(){
-	EchoBold -n "Stopping existing sshd, if running"
-	systemctl stop ssh
+	EchoBold -n "Starting sshd"
+	systemctl start ssh.service
 	Status
 
-	EchoBold "Creating home for ovpnkeys user"
-	mkdir -p /dev/shm/ovpnkeys
-	chown root:ovpnkeys /dev/shm/ovpnkeys 
-	chmod 0750 /dev/shm/ovpnkeys
+	EchoBold -n "Starting vnc"
+	systemctl start vncserver-x11-serviced.service
 	Status
 
-	EchoBold "Moving keys to ovpnkeys home directory"
-	cp /etc/openvpn/easy-rsa/keys/client*.ovpn /dev/shm/ovpnkeys 
-	Status
-
-	EchoBold -n "Restarting sshd"
-	systemctl stop ssh
+	EchoBold -n "Opening firewall for ssh and vnc"
+	ufw allow 22 &>/dev/null
+	ufw allow 5900 &>/dev/null
 	Status
 	
-	EchoGreen "SFTP for ovpnkeys enabled"
+	EchoGreen "Remote Access Enabled"
 }
 
 DisableKeysSharing(){
-	EchoBold -n "Stopping sshd"
-	systemctl stop ssh 
+	EchoBold -n "Closing firewall for ssh and vnc"
+	ufw deny 22 &>/dev/null
+	ufw deny 5900 &>/dev/null
 	Status
 
-	EchoBold -n "Removing ovpnkeys home directory"
-	rm -rf /dev/shm/ovpnkeys
+	EchoBold -n "Stopping sshd"
+	systemctl stop ssh.service
+	Status
+
+	EchoBold -n "Stopping vnc"
+	systemctl stop vncserver-x11-serviced.service
 	Status
 	
-	EchoRed "SFTP for ovpnkeys disabled"
+	EchoGreen "Remote Access Disabled"
 }
 
 
@@ -86,16 +89,18 @@ EOF"
 		apt-get install ufw
 	fi
 
+	Separator
+	EchoBold "--Enter the IP or dynamic domain address of this server"
+	read -e -p "Server Address=" -i "" SERVERIP
+
 	EchoBold -n "Copying server.conf to /etc/openvpn/server.conf"
-	cp -f ./server.conf /etc/openvpn/server.conf
+	cat ./server.conf | sed -e "s/remote my-server-1 443/remote $SERVERIP 443/" > /etc/openvpn/server.conf
 	Status
  
 	EchoBold -n "Editing sysctl.conf to allow ipv4 forwarding"
 	cp -f /etc/sysctl.conf /etc/sysctl.conf.bk
 	cat /etc/sysctl.conf | sed -e "s/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/" > /etc/sysctl.conf
 	Status
-
-	# TODO: DISABLE IPV6
 
 	EchoBold "Setting up UFW"
 	ufw allow 443/tcp
@@ -223,15 +228,25 @@ EOF"
 		usermod client$i -g ovpnkeys
 		usermod client$i -s /bin/false
 		mkdir -p /home/client$i/ovpnkeys
-		chown root:root /home/client$i
-		chmod 750 /home/client$i
+		chown -R root:root /home/client$i
+		chmod -R 750 /home/client$i
 		chown client$i:client$i /home/client$i/ovpnkeys
+		chmod -R 550 /home/client$i/ovpnkeys
 		usermod client$i -d /home/client$i/ovpnkeys
 		cp $CO /home/client$i/ovpnkeys
 	done
 	
 	Separator
 	./build-dh
+	Separator
+
+	EchoBold -n "Copying ta.key and dh2048.pem to /etc/openvpn"
+	cp /etc/openvpn/easy-rsa/ta.key /etc/openvpn
+	cp /etc/openvpn/easy-rsa/keys/dh2048.pem /etc/openvpn
+	Status
+
+	EchoBold -n "Enable openvpn@server.service"
+	systemctl enable openvpn@server.service
 
 	rm -rf /dev/shm/OpenVPNInstall 2>/dev/null
 }
@@ -239,17 +254,17 @@ EOF"
 
 if [[ "$1" == "install" ]]; then
 	Install
-elif [[ "$1" == "startssh" ]]; then
+elif [[ "$1" == "startra" ]]; then
 	EnableKeysSharing
-elif [[ "$1" == "stopssh" ]]; then
+elif [[ "$1" == "stopra" ]]; then
 	DisableKeysSharing
 else
 	Title "OpenVPN Wizard for RaspberryPi"
 	Separator
 	EchoBold "Commands:"
 	EchoBold "  install: "; echo "Installs OpenVPN, UFW and configures both for use with Android devices"
-	EchoBold "  startssh: "; echo "Starts SSH so keys can be retrieved via SFTP"
-	EchoBold "  stopssh: "; echo "Stops SSH"o
+	EchoBold "  startra: "; echo "Starts sshd and vncserver and opens firewall"
+	EchoBold "  stopra: "; echo "Stops sshd and vncserver and closes firewall"
 	Separator
 fi
 exit 0

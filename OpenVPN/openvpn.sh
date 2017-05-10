@@ -94,12 +94,12 @@ EOF"
 	read -e -p "Server Address=" -i "" SERVERIP
 
 	EchoBold -n "Copying server.conf to /etc/openvpn/server.conf"
-	cat ./server.conf | sed -e "s/remote my-server-1 443/remote $SERVERIP 443/" > /etc/openvpn/server.conf
+	cp $ScriptDir/server.conf /etc/openvpn/server.conf
 	Status
- 
+
 	EchoBold -n "Editing sysctl.conf to allow ipv4 forwarding"
 	cp -f /etc/sysctl.conf /etc/sysctl.conf.bk
-	cat /etc/sysctl.conf | sed -e "s/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/" > /etc/sysctl.conf
+	ReplaceLineIfExists "/etc/sysctl.conf" "#net.ipv4.ip_forward=1" "net.ipv4.ip_forward=1"
 	Status
 
 	EchoBold "Setting up UFW"
@@ -151,11 +151,24 @@ EOF"
 	groupadd ovpnkeys &>/dev/null
 	Status
 
-	if ! cat /etc/ssh/sshd_config | grep "Match Group ovpnkeys"; then
+
+#--/etc/ssh/sshd_config
+	EchoBold -n "Backing up /etc/ssh/sshd_config to sshd_config.bk"
+	cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bk
+	Status
+
+	if cat /etc/sshd_config | grep "Subsystem sftp /usr/lib/openssh/sftp-server" 1>/dev/null; then
+		EchoBold -n "Modifying /etc/ssh/sshd_config for chrooted sftp group ovpnkeys"
+		ReplaceLineIfExists "/etc/ssh/sshd_config" "Subsystem sftp /usr/lib/openssh/sftp-server" "#Subsystem sftp /usr/lib/openssh/sftp-server"
+		echo "Subsystem sftp internal-sftp" >>/etc/ssh/sshd_config
+		Status
+	fi
+
+	if ! cat /etc/ssh/sshd_config | grep "Match Group ovpnkeys" 1>/dev/null; then
 		EchoBold -n "Adding ovpnkeys group restriction to sshd_config"
 		echo "" >>/etc/ssh/sshd_config
 		echo "Match Group ovpnkeys" >>/etc/ssh/sshd_config
-		echo "	ChrootDirectory %h" >>/etc/ssh/sshd_config
+		echo "	ChrootDirectory /home/%u" >>/etc/ssh/sshd_config
 		echo "	X11Forwarding no" >>/etc/ssh/sshd_config
 		echo "	AllowTcpForwarding no" >>/etc/ssh/sshd_config
 		echo "	ForceCommand internal-sftp" >>/etc/ssh/sshd_config
@@ -163,18 +176,13 @@ EOF"
 	fi
 
 	EchoBold -n "Creating vars file"
-	# Super-cumbersome copy and replace on vars file.  I'm really questioning why I'm doing this...
-	TF="/dev/shm/OpenVPNInstall/vars"
-	TTF="/dev/shm/OpenVPNInstall/vars.new"
-	RF="/etc/openvpn/easy-rsa/vars"
-	cp -r $RF $TF
-	cat $TF | sed -e "s/export KEY_COUNTRY=\"US\"/export KEY_COUNTRY=\"$COUNTRY\"/" > $TTF; mv -f $TTF $TF
-	cat $TF | sed -e "s/export KEY_PROVINCE=\"CA\"/export KEY_PROVINCE=\"$PROVINCE\"/" > $TTF; mv -f $TTF $TF
-	cat $TF | sed -e "s/export KEY_CITY=\"SanFrancisco\"/export KEY_CITY=\"$CITY\"/" > $TTF; mv -f $TTF $TF
-	cat $TF | sed -e "s/export KEY_ORG=\"Fort-Funston\"/export KEY_ORG=\"$ORG\"/" > $TTF; mv -f $TTF $TF
-	cat $TF | sed -e "s/export KEY_EMAIL=\"me@myhost.mydomain\"/export KEY_EMAIL=\"$EMAIL\"/" > $TTF; mv -f $TTF $TF
-	cat $TF | sed -e "s/export KEY_OU=\"MyOrganizationalUnit\"/export KEY_OU=\"$OU\"/" > $TTF; mv -f $TTF $TF
-	mv -f $TF $RF
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_COUNTRY=\"US\"" "export KEY_COUNTRY=\"$COUNTRY\""
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_PROVINCE=\"CA\"" "export KEY_PROVINCE=\"$PROVINCE\""
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_CITY=\"SanFrancisco\"" "export KEY_CITY=\"$CITY\""
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_ORG=\"Fort-Funston\"" "export KEY_ORG=\"$ORG\""
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_EMAIL=\"me@myhost.mydomain\"" "export KEY_EMAIL=\"$EMAIL\""
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_OU=\"MyOrganizationalUnit\"" "export KEY_OU=\"$OU\""
+
 	Status
 
 	EchoBold -n "Preparing easy-rsa directory"
@@ -201,13 +209,18 @@ EOF"
 
 	cp /etc/openvpn/easy-rsa/keys/{server.crt,server.key,ca.crt} /etc/openvpn
 
+	EchoBold -n "Copying client.conf to /etc/openvpn/easy-rsa/keys/client.conf"
+	cp $ScriptDir/server.conf /etc/openvpn/easy-rsa/keys/client.conf
+	ReplaceLineIfExists "/etc/openvpn/easy-rsa/keys/client.conf" "remote my-server-1 443" "remote $SERVERIP 443"
+	Status
+
 	i=0
 	while [ $i -lt $CLIENTS ]; do
 		let i=i+1
 		EchoBold -n "Building key for client$i"
 		./build-key --batch "client$i" &>/dev/null
 		CO="/etc/openvpn/easy-rsa/keys/client$i.ovpn"
-		cat $ScriptDir/client.conf > $CO
+		cat /etc/openvpn/easy-rsa/keys/client.conf > $CO
 		echo "<ca>" >> $CO
 		cat /etc/openvpn/easy-rsa/keys/ca.crt >> $CO
 		echo "</ca>" >> $CO
@@ -228,12 +241,14 @@ EOF"
 		usermod client$i -g ovpnkeys
 		usermod client$i -s /bin/false
 		mkdir -p /home/client$i/ovpnkeys
-		chown -R root:root /home/client$i
-		chmod -R 750 /home/client$i
-		chown client$i:client$i /home/client$i/ovpnkeys
-		chmod -R 550 /home/client$i/ovpnkeys
-		usermod client$i -d /home/client$i/ovpnkeys
-		cp $CO /home/client$i/ovpnkeys
+		chown root:root /home/client$i
+		chmod 755 /home/client$i
+		chown client$i:ovpnkeys /home/client$i/ovpnkeys
+		chmod 500 /home/client$i/ovpnkeys
+		usermod client$i -d /ovpnkeys
+		cp $CO /home/client$i/ovpnkeys/client$i.ovpn
+		chown -R client$i:ovpnkeys /home/client$i/ovpnkeys
+		chmod 444 /home/client$i/ovpnkeys/client$i.ovpn
 	done
 	
 	Separator

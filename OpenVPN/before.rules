@@ -14,7 +14,6 @@
 -A POSTROUTING -s 10.8.0.0/8 -o eth0 -j MASQUERADE
 COMMIT
 
-
 # Don't delete these required lines, otherwise there will be errors
 *filter
 :ufw-before-input - [0:0]

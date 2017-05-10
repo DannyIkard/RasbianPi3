@@ -3,6 +3,15 @@ GetScreenWidth(){
 }
 
 
+ReplaceLineIfExists(){
+	Search=$( echo "$2" | sed -e 's/[\/&]/\\&/g' )
+	Replace=$( echo "$3" | sed -e 's/[\/&]/\\&/g' )
+	mkdir /dev/shm/ReplaceLineIfExists
+	cat $1 | sed -e "s/$Search/$Replace/" >"/dev/shm/ReplaceLineIfExists/$1"
+	mv /dev/shm/ReplaceLineIfExists/$1 $1
+	rm -rf /dev/shm/ReplaceLineIfExists
+}
+
 Status(){
   local check=$?
   local cols=$(GetScreenWidth)

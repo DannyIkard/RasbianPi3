@@ -4,11 +4,19 @@ GetScreenWidth(){
 
 
 ReplaceLineIfExists(){
+	if [[ ${1:0:1} == "/" ]] ; then
+		TrimmedPathAndFile="${1#?}"
+	else
+		TrimmedPathAndFile="$1"
+	fi
+	Filename="${1##*/}"
+	Path="`echo $1 | rev | cut -d "/" -f2- | rev`"
+#	EchoRed "DEBUG REPLACELINEIFEXISTS $1 - Path=$Path Filename=$Filename TrimmedPath=$TrimmedPathAndFile"
 	Search=$( echo "$2" | sed -e 's/[\/&]/\\&/g' )
 	Replace=$( echo "$3" | sed -e 's/[\/&]/\\&/g' )
-	mkdir /dev/shm/ReplaceLineIfExists
-	cat $1 | sed -e "s/$Search/$Replace/" >"/dev/shm/ReplaceLineIfExists/$1"
-	mv /dev/shm/ReplaceLineIfExists/$1 $1
+	mkdir -p /dev/shm/ReplaceLineIfExists/$Path
+	cat $1 | sed -e "s/$Search/$Replace/" >"/dev/shm/ReplaceLineIfExists/$TrimmedPathAndFile"
+	mv /dev/shm/ReplaceLineIfExists/$TrimmedPathAndFile $1
 	rm -rf /dev/shm/ReplaceLineIfExists
 }
 

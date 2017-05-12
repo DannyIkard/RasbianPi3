@@ -157,7 +157,7 @@ EOF"
 	cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bk
 	Status
 
-	if cat /etc/sshd_config | grep "Subsystem sftp /usr/lib/openssh/sftp-server" 1>/dev/null; then
+	if cat /etc/ssh/sshd_config | grep "Subsystem sftp /usr/lib/openssh/sftp-server" 1>/dev/null; then
 		EchoBold -n "Modifying /etc/ssh/sshd_config for chrooted sftp group ovpnkeys"
 		ReplaceLineIfExists "/etc/ssh/sshd_config" "Subsystem sftp /usr/lib/openssh/sftp-server" "#Subsystem sftp /usr/lib/openssh/sftp-server"
 		echo "Subsystem sftp internal-sftp" >>/etc/ssh/sshd_config

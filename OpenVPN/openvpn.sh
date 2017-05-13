@@ -3,6 +3,9 @@
 
 # TODO: DISABLE IPV6, choose port/tcp,udp, harden...
 
+
+
+
 ScriptDir="$( cd "$( dirname "$BASH_SOURCE[0]}" )" && pwd )"
 
 if [[ $EUID -ne 0 ]]; then
@@ -47,7 +50,8 @@ DisableKeysSharing(){
 
 Install(){
 	Title "Install OpenVPN"
-	mkdir -p /dev/shm/OpenVPNInstall 2>/dev/null
+	SHMDIR="/dev/shm/OpenVPNInstall"
+	mkdir -p $SHMDIR 2>/dev/null
 	if [ -d /etc/openvpn/easy-rsa/ ]; then
 		EchoRed -n "Removing existing easy-rsa directory in /etc/openvpn"
 		sudo rm -rf /etc/openvpn/easy-rsa
@@ -106,11 +110,29 @@ EOF"
 	ufw allow 443/tcp
 	ufw allow 22/tcp
 	ufw allow 5900/tcp
+	
+	EchoBold "Editing /etc/default/ufw"
 	if [ ! -f /etc/default/ufw.bk ]; then sudo cp -f /etc/default/ufw /etc/default/ufw.bk; fi
 	cat /etc/default/ufw | sed -e "s/DEFAULT_FORWARD_POLICY=\"DROP\"/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/" > /etc/default/ufw.new
 	mv -f /etc/default/ufw.new /etc/default/ufw
-	cp -f before.rules /etc/ufw/before.rules
-	ufw enable
+	Status
+
+	EchoBold "Editing /etc/ufw/before.rules"
+	cp -f before.rules /etc/ufw/before.rules.bk
+	cat <<EOF >> $SHMDIR/before.rules
+	# OpenVPN rules
+	*nat
+	:POSTROUTING ACCEPT [0:0]
+	-A POSTROUTING -s 10.8.0.0/8 -o eth0 -j MASQUERADE
+	COMMIT
+	EOF
+	cat /etc/ufw/before.rules >> $SHMDIR/before.rules
+	mv -f $SHMDIR/before.rules /etc/ufw/before.rules
+	Status
+
+	EchoBold "Enabling UFW"
+	ufw enable &>/dev/null
+	Status
 
 	EchoBold "EasyRSA setup"
 	rm -rf /etc/openvpn/easy-rsa 2>/dev/null
@@ -159,8 +181,7 @@ EOF"
 
 	if cat /etc/ssh/sshd_config | grep "Subsystem sftp /usr/lib/openssh/sftp-server" 1>/dev/null; then
 		EchoBold -n "Modifying /etc/ssh/sshd_config for chrooted sftp group ovpnkeys"
-		ReplaceLineIfExists "/etc/ssh/sshd_config" "Subsystem sftp /usr/lib/openssh/sftp-server" "#Subsystem sftp /usr/lib/openssh/sftp-server"
-		echo "Subsystem sftp internal-sftp" >>/etc/ssh/sshd_config
+		ReplaceLineIfExists "/etc/ssh/sshd_config" "Subsystem sftp /usr/lib/openssh/sftp-server" "Subsystem sftp internal-sftp"
 		Status
 	fi
 
@@ -209,10 +230,26 @@ EOF"
 
 	cp /etc/openvpn/easy-rsa/keys/{server.crt,server.key,ca.crt} /etc/openvpn
 
+	#gunzip -c /usr/share/doc/openvpn/examples/sample-config-files/server.conf.gz > $SHMDIR/server.conf
+	#ReplaceLineIfExists "$SHMDIR/server.conf" "port 1194" "port 443"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" ";proto tcp" "proto tcp"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" "proto udp" ";proto udp"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" "dh dh2048.pem" "dh dh$KEYSTRENGTH.pem"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" ";topology subnet" "topology subnet"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" ";push \"dhcp-option DNS 208.67.222.222\"" "push \"dhcp-option DNS 192.168.1.1"
+	#ReplaceLineIfExists "$SHMDIR/server.conf" ";push \"dhcp-option DNS 208.67.222.220\"" "push \"dhcp-option DNS 8.8.8.8"
+	#TODO: Get KEYSTRENGTH input, DNS input, LAN input for server.conf.  Add line to push extra DNS options down the list beyond the two commented options
+	#TODO: client2client?  Cryptocipher?
+	#ipp.txt in /dev/shm to reduce writes?
+
 	EchoBold -n "Copying client.conf to /etc/openvpn/easy-rsa/keys/client.conf"
-	cp $ScriptDir/server.conf /etc/openvpn/easy-rsa/keys/client.conf
+	cp $ScriptDir/client.conf /etc/openvpn/easy-rsa/keys/client.conf
 	ReplaceLineIfExists "/etc/openvpn/easy-rsa/keys/client.conf" "remote my-server-1 443" "remote $SERVERIP 443"
 	Status
+
+	#Do the same as above for client.conf
+	#cp /usr/share/doc/openvpn/examples/sample-config-files/client.conf
+
 
 	i=0
 	while [ $i -lt $CLIENTS ]; do
@@ -263,7 +300,7 @@ EOF"
 	EchoBold -n "Enable openvpn@server.service"
 	systemctl enable openvpn@server.service
 
-	rm -rf /dev/shm/OpenVPNInstall 2>/dev/null
+	rm -rf $SHMDIR 2>/dev/null
 }
 
 

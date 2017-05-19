@@ -3,9 +3,6 @@
 
 # TODO: DISABLE IPV6, choose port/tcp,udp, harden...
 
-
-
-
 ScriptDir="$( cd "$( dirname "$BASH_SOURCE[0]}" )" && pwd )"
 
 if [[ $EUID -ne 0 ]]; then
@@ -49,6 +46,7 @@ DisableKeysSharing(){
 
 
 Install(){
+	clear
 	Title "Install OpenVPN"
 	SHMDIR="/dev/shm/OpenVPNInstall"
 	mkdir -p $SHMDIR 2>/dev/null
@@ -106,20 +104,27 @@ EOF"
 	ReplaceLineIfExists "/etc/sysctl.conf" "#net.ipv4.ip_forward=1" "net.ipv4.ip_forward=1"
 	Status
 
-	EchoBold "Setting up UFW"
-	ufw allow 443/tcp
-	ufw allow 22/tcp
-	ufw allow 5900/tcp
+	EchoBold -n "Setting up UFW - allow 443/tcp"
+	ufw allow 443/tcp &>/dev/null
+	Status
+
+	EchoBold -n "Setting up UFW - allow 22/tcp"
+	ufw allow 22/tcp &>/dev/null
+	Status
+
+	EchoBold -n "Setting up UFW - allow 5900/tcp"
+	ufw allow 5900/tcp &>/dev/null
+	Status
 	
-	EchoBold "Editing /etc/default/ufw"
+	EchoBold -n "Editing /etc/default/ufw"
 	if [ ! -f /etc/default/ufw.bk ]; then sudo cp -f /etc/default/ufw /etc/default/ufw.bk; fi
 	cat /etc/default/ufw | sed -e "s/DEFAULT_FORWARD_POLICY=\"DROP\"/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/" > /etc/default/ufw.new
 	mv -f /etc/default/ufw.new /etc/default/ufw
 	Status
 
-	EchoBold "Editing /etc/ufw/before.rules"
-	cp -f before.rules /etc/ufw/before.rules.bk
-	cat <<EOF >> $SHMDIR/before.rules
+	EchoBold -n "Editing /etc/ufw/before.rules"
+	cp -f /etc/ufw/before.rules /etc/ufw/before.rules.bk
+	cat <<- EOF > $SHMDIR/before.rules
 	# OpenVPN rules
 	*nat
 	:POSTROUTING ACCEPT [0:0]
@@ -130,7 +135,7 @@ EOF"
 	mv -f $SHMDIR/before.rules /etc/ufw/before.rules
 	Status
 
-	EchoBold "Enabling UFW"
+	EchoBold -n "Enabling UFW"
 	ufw enable &>/dev/null
 	Status
 
@@ -139,7 +144,7 @@ EOF"
 	cp -r /usr/share/easy-rsa/ /etc/openvpn
 	mkdir /etc/openvpn/easy-rsa/keys
 
-	Separator
+	Separator "_"
 	EchoBold "We will now open nano to edit the var file."
 	EchoBold "--Please edit the below vars to your preference:"
 	read -e -p "KEY_COUNTRY=" -i "US" COUNTRY
@@ -149,7 +154,7 @@ EOF"
 	read -e -p "KEY_EMAIL=" -i "me@myhost.mydomain" EMAIL
 	read -e -p "KEY_OU=" -i "MyOrganizationalUnit" OU
 
-	Separator
+	Separator "_"
 	EchoBold "--Enter the number of clients that will use this VPN"
 	CLIENTSOK=""
 	while [[ $CLIENTSOK != "OK" ]]; do
@@ -203,7 +208,6 @@ EOF"
 	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_ORG=\"Fort-Funston\"" "export KEY_ORG=\"$ORG\""
 	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_EMAIL=\"me@myhost.mydomain\"" "export KEY_EMAIL=\"$EMAIL\""
 	ReplaceLineIfExists "/etc/openvpn/easy-rsa/vars" "export KEY_OU=\"MyOrganizationalUnit\"" "export KEY_OU=\"$OU\""
-
 	Status
 
 	EchoBold -n "Preparing easy-rsa directory"
@@ -272,7 +276,7 @@ EOF"
 		cat /etc/openvpn/easy-rsa/ta.key >> $CO
 		echo "</tls-auth>" >> $CO
 		Status
-		Separator
+		Separator "_"
 		EchoBold "--Create user for SFTP key retrieval"
 		adduser client$i
 		usermod client$i -g ovpnkeys
@@ -288,9 +292,9 @@ EOF"
 		chmod 444 /home/client$i/ovpnkeys/client$i.ovpn
 	done
 	
-	Separator
+	Separator "_"
 	./build-dh
-	Separator
+	Separator "_"
 
 	EchoBold -n "Copying ta.key and dh2048.pem to /etc/openvpn"
 	cp /etc/openvpn/easy-rsa/ta.key /etc/openvpn
@@ -299,7 +303,7 @@ EOF"
 
 	EchoBold -n "Enable openvpn@server.service"
 	systemctl enable openvpn@server.service
-
+	Status
 	rm -rf $SHMDIR 2>/dev/null
 }
 
@@ -312,7 +316,7 @@ elif [[ "$1" == "stopra" ]]; then
 	DisableKeysSharing
 else
 	Title "OpenVPN Wizard for RaspberryPi"
-	Separator
+	Separator "_"
 	EchoBold "Commands:"
 	EchoBold "  install: "; echo "Installs OpenVPN, UFW and configures both for use with Android devices"
 	EchoBold "  startra: "; echo "Starts sshd and vncserver and opens firewall"
